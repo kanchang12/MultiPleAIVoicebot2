@@ -2,103 +2,161 @@ import os
 import json
 import requests
 from flask import Flask, request, jsonify, render_template
-from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
+from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
+import websocket
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
-# Twilio credentials
+# Load environment variables
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
+ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID')
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 
-# ElevenLabs credentials
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
-ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID')
-
-# Ensure all required variables are available
-if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID]):
-    raise ValueError("Missing required environment variables")
-
-# Use the given Koyeb URL directly
-BASE_URL = 'https://handsome-marquita-onewebonly-bffca566.koyeb.app/'
-
-# Initialize Flask app and Twilio client
+# Initialize Flask app
 app = Flask(__name__)
+
+# Initialize Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
+# Hardcoded prompt for the conversation
+PROMPT = "Hello, I would like to schedule an appointment. Can you help me with that?"
 
+# Helper function to get signed URL for ElevenLabs connection
+def get_signed_url():
+    response = requests.get(
+        f"https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id={ELEVENLABS_AGENT_ID}",
+        headers={"xi-api-key": ELEVENLABS_API_KEY}
+    )
+    data = response.json()
+    return data["signed_url"]
+
+# Helper function to send an appointment confirmation SMS
+def send_appointment_sms(to_number):
+    try:
+        message = "Thank you for scheduling an appointment with us. Your appointment has been confirmed."
+        twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_PHONE_NUMBER,
+            to=to_number
+        )
+        print(f"SMS sent to {to_number}")
+    except Exception as e:
+        print(f"Error sending SMS: {e}")
+
+# Route for the index page (form)
 @app.route('/')
 def index():
-    # This will render the index.html file
     return render_template('index.html')
 
-# Endpoint for initiating outbound calls
+# Route to initiate outbound calls
 @app.route('/outbound-call', methods=['POST'])
 def outbound_call():
-    data = request.json
-    number = data.get('number')
+    number = request.form.get('number')
+    
     if not number:
         return jsonify({"error": "Phone number is required"}), 400
-
+    
     try:
-        # Make the outbound call using Twilio
+        # Create a call using Twilio
         call = twilio_client.calls.create(
             from_=TWILIO_PHONE_NUMBER,
             to=number,
-            url=f"{BASE_URL}outbound-call-twiml"
+            url=f"https://{request.host}/outbound-call-twiml"
         )
-        return jsonify({"success": True, "message": "Call initiated", "callSid": call.sid})
-    except Exception as e:
-        print(f"Error initiating outbound call: {e}")
+        return jsonify({
+            "success": True,
+            "message": "Call initiated",
+            "callSid": call.sid
+        })
+    except Exception as error:
+        print(f"Error initiating outbound call: {error}")
         return jsonify({"success": False, "error": "Failed to initiate call"}), 500
 
-# Endpoint to handle the Twilio call and respond with voice instructions
-@app.route('/outbound-call-twiml', methods=['POST'])
+# TwiML route for outbound calls
+@app.route('/outbound-call-twiml', methods=['GET'])
 def outbound_call_twiml():
     response = VoiceResponse()
-    response.say("Please state your request after the beep.")
-    response.record(
-        action=f"{BASE_URL}process-speech", 
-        method="POST", 
-        max_length=30,
-        timeout=10
-    )
+    connect = Connect()
+    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")
+    stream.parameter(name="prompt", value=PROMPT)  # Pass the predefined prompt
+    connect.append(stream)
+    response.append(connect)
+    
     return str(response)
 
-# Endpoint to process speech input received from Twilio
-@app.route('/process-speech', methods=['POST'])
-def process_speech():
-    recording_url = request.form.get('RecordingUrl')
-    if not recording_url:
-        return jsonify({"error": "No speech recorded"}), 400
-    
-    # Send speech to ElevenLabs for processing
-    try:
-        # Send the recorded URL (or text input) to ElevenLabs for processing
-        response = requests.post(
-            f"https://api.elevenlabs.io/v1/agents/{ELEVENLABS_AGENT_ID}/process", 
-            headers={"xi-api-key": ELEVENLABS_API_KEY},
-            json={"input": {"text": recording_url}}  # Send the URL or text (depending on ElevenLabs requirements)
-        )
-        response.raise_for_status()
-        result = response.json()
-        agent_response = result.get('response')
+# WebSocket route for media streams
+@app.route('/outbound-media-stream')
+def outbound_media_stream():
+    if request.environ.get('wsgi.websocket'):
+        ws = request.environ['wsgi.websocket']
+        print("[Server] Twilio connected to outbound media stream")
+        
+        elevenlabs_ws = None
+        
+        def setup_elevenlabs():
+            nonlocal elevenlabs_ws
+            signed_url = get_signed_url()
+            elevenlabs_ws = websocket.WebSocketApp(
+                signed_url,
+                on_open=on_elevenlabs_open,
+                on_message=on_elevenlabs_message,
+                on_error=on_elevenlabs_error,
+                on_close=on_elevenlabs_close
+            )
+            elevenlabs_ws.run_forever()
+        
+        def on_elevenlabs_open(wsapp):
+            print("[ElevenLabs] Connected")
+        
+        def on_elevenlabs_message(wsapp, message):
+            print("[ElevenLabs] Message received:", message)
+            msg = json.loads(message)
+            if msg.get("type") == "audio":
+                audio_chunk = msg.get("audio", {}).get("chunk")
+                if audio_chunk:
+                    audio_data = {
+                        "event": "media",
+                        "media": {"payload": audio_chunk}
+                    }
+                    ws.send(json.dumps(audio_data))
 
-        # If ElevenLabs returns a response, send the audio to Twilio for playback
-        if agent_response:
-            # Generate an audio file (ElevenLabs provides this)
-            audio_url = result.get('audio_url')  # This URL should be from ElevenLabs, containing the audio response
-            twilio_response = VoiceResponse()
-            twilio_response.play(audio_url)  # Play the ElevenLabs generated audio
-            return str(twilio_response)
-        else:
-            return jsonify({"error": "No response from ElevenLabs"}), 400
-    except Exception as e:
-        print(f"Error processing speech with ElevenLabs: {e}")
-        return jsonify({"error": "Failed to process speech with ElevenLabs"}), 500
+            # Detect if the conversation involves an appointment (check for keywords)
+            if msg.get("type") == "agent_response":
+                agent_response = msg.get("agent_response_event", {}).get("agent_response", "")
+                print(f"Agent response: {agent_response}")
+
+                # Check if the response contains appointment-related keywords
+                if any(keyword in agent_response.lower() for keyword in ["appointment", "schedule", "book", "reserve"]):
+                    send_appointment_sms(ws.remote_address)  # Send SMS to the number
+                    print(f"Appointment SMS sent to: {ws.remote_address}")
+
+        def on_elevenlabs_error(wsapp, error):
+            print("[ElevenLabs] Error:", error)
+
+        def on_elevenlabs_close(wsapp, close_status_code, close_msg):
+            print("[ElevenLabs] Connection closed")
+
+        setup_elevenlabs()
+        
+        while True:
+            message = ws.receive()
+            if message is None:
+                break
+            msg = json.loads(message)
+            if msg.get("event") == "media":
+                audio_payload = msg.get("media", {}).get("payload")
+                if audio_payload:
+                    elevenlabs_ws.send(json.dumps({"user_audio_chunk": audio_payload}))
+        
+        print("[Twilio] Client disconnected")
+        return ''
+
+    return "WebSocket connection required", 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
