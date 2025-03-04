@@ -54,7 +54,7 @@ def index():
     return render_template('index.html')
 
 # Route to initiate outbound calls
-@app.route('/outbound-call', methods=['POST'])
+@app.route('/outbound-call', methods=['GET'])
 def initiate_outbound_call():
     number = request.json.get('number')
     
