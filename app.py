@@ -17,8 +17,8 @@ ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID')
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
-BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')  # Default to localhost for testing
 
+BASE_URL = 'https://handsome-marquita-onewebonly-bffca566.koyeb.app/'
 if not all([ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, BASE_URL]):
     raise ValueError('Missing required environment variables')
 
