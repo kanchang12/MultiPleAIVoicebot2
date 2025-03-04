@@ -1,11 +1,12 @@
 import os
 import json
 import websocket
-import requests
 from flask import Flask, request, render_template, jsonify
-from dotenv import load_dotenv
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
+from dotenv import load_dotenv
+import threading
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -16,17 +17,16 @@ ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID')
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
-BASE_URL = "https://handsome-marquita-onewebonly-bffca566.koyeb.app"
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')  # Default to localhost for testing
 
-if not all([ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
+if not all([ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, BASE_URL]):
     raise ValueError('Missing required environment variables')
 
 app = Flask(__name__)
-PORT = int(os.getenv('PORT', 8000))
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
+# Fetch signed URL for ElevenLabs WebSocket
 def get_signed_url():
-    """Fetch signed URL for ElevenLabs conversation."""
     try:
         response = requests.get(
             f"https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id={ELEVENLABS_AGENT_ID}",
@@ -40,27 +40,30 @@ def get_signed_url():
 
 @app.route('/')
 def index():
+    # This will render the index.html file
     return render_template('index.html')
 
+# Route to initiate the outbound call
 @app.route('/outbound-call', methods=['POST'])
 def outbound_call():
     data = request.json
     number = data.get('number')
     if not number:
         return jsonify({"error": "Phone number is required"}), 400
-    
+
     try:
         call = twilio_client.calls.create(
             from_=TWILIO_PHONE_NUMBER,
             to=number,
-            url=f"{BASE_URL}/outbound-call-twiml"
+            url=f"{BASE_URL}/outbound-call-twiml",
+            status_callback=f"{BASE_URL}/statusCallback"
         )
         return jsonify({"success": True, "message": "Call initiated", "callSid": call.sid})
     except Exception as e:
-        print(f"Error initiating outbound call: {e}")
-        return jsonify({"success": False, "error": "Failed to initiate call"}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/outbound-call-twiml', methods=['GET', 'POST'])
+# TwiML that Twilio will use to connect the call
+@app.route('/outbound-call-twiml', methods=['GET'])
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
@@ -69,25 +72,21 @@ def outbound_call_twiml():
     response.append(connect)
     return str(response), 200, {'Content-Type': 'text/xml'}
 
-def send_appointment_sms(to_number, message):
-    try:
-        twilio_client.messages.create(
-            body=message,
-            from_=TWILIO_PHONE_NUMBER,
-            to=to_number
-        )
-        print(f"SMS sent to {to_number}")
-    except Exception as e:
-        print(f"Error sending SMS: {e}")
+# Status callback to track the call's progress
+@app.route('/statusCallback', methods=['POST'])
+def status_callback():
+    call_status = request.form.get('CallStatus')
+    print(f"Call Status: {call_status}")
+    return '', 200
 
+# WebSocket to handle media streaming with ElevenLabs
 @app.route('/outbound-media-stream')
 def outbound_media_stream():
     if request.environ.get('wsgi.websocket'):
         ws = request.environ['wsgi.websocket']
-        print("[Server] Twilio connected to outbound media stream")
+        print("[Server] WebSocket connected to handle media stream")
 
-        stream_sid, call_sid, elevenlabs_ws, to_number = None, None, None, None
-
+        elevenlabs_ws = None
         def setup_elevenlabs():
             nonlocal elevenlabs_ws
             try:
@@ -99,24 +98,20 @@ def outbound_media_stream():
                     on_close=lambda ws, code, msg: print(f"[ElevenLabs] Disconnected with code {code}: {msg}"),
                     on_error=lambda ws, error: print(f"[ElevenLabs] Error: {error}")
                 )
-                import threading
                 threading.Thread(target=elevenlabs_ws.run_forever, daemon=True).start()
             except Exception as e:
                 print(f"[ElevenLabs] Setup error: {e}")
 
         def on_elevenlabs_message(wsapp, message):
-            nonlocal stream_sid, to_number
             try:
                 msg = json.loads(message)
                 print(f"[ElevenLabs] Message received: {msg}")
-                if msg.get("type") == "audio" and stream_sid:
-                    print(f"[Server] Sending audio chunk to Twilio, streamSid: {stream_sid}")
-                    ws.send(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": msg["audio"]["chunk"]}}))
-                elif msg.get("type") == "agent_response" and to_number:
+                if msg.get("type") == "agent_response":
                     agent_response = msg.get("agent_response_event", {}).get("agent_response", "")
                     print(f"[Server] Agent Response: {agent_response}")
                     if any(word in agent_response.lower() for word in ["appointment", "schedule", "book"]):
-                        send_appointment_sms(to_number, "Your appointment has been confirmed.")
+                        # Trigger some action like sending an SMS (this can be expanded)
+                        print(f"[Server] Appointment confirmed.")
             except Exception as e:
                 print(f"[ElevenLabs] Error processing message: {e}")
 
@@ -129,14 +124,8 @@ def outbound_media_stream():
                 msg = json.loads(message)
                 print(f"[Server] Twilio WebSocket message: {msg}")
                 if msg.get("event") == "start":
-                    stream_sid, call_sid = msg["start"].get("streamSid"), msg["start"].get("callSid")
-                    call_info = twilio_client.calls(call_sid).fetch() if call_sid else None
-                    to_number = call_info.to if call_info else None
-                    print(f"[Server] Call started: streamSid={stream_sid}, callSid={call_sid}, to={to_number}")
+                    print(f"[Server] Call started: {msg['start']}")
                     setup_elevenlabs()
-                elif msg.get("event") == "media" and elevenlabs_ws:
-                    print(f"[Server] Sending media to ElevenLabs: {msg['media']}")
-                    elevenlabs_ws.send(json.dumps({"user_audio_chunk": msg["media"]["payload"]}))
                 elif msg.get("event") == "stop":
                     print("[Server] Stopping WebSocket connection")
                     if elevenlabs_ws:
@@ -152,7 +141,4 @@ def outbound_media_stream():
     return "WebSocket required", 400
 
 if __name__ == '__main__':
-    from gevent import pywsgi
-    from geventwebsocket.handler import WebSocketHandler
-    print(f"[Server] Running on port {PORT}")
-    pywsgi.WSGIServer(('0.0.0.0', PORT), app, handler_class=WebSocketHandler).serve_forever()
+    app.run(host='0.0.0.0', port=8000)
