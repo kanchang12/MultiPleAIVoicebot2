@@ -54,7 +54,7 @@ def index():
     return render_template('index.html')
 
 # Route to initiate outbound calls
-@app.route('/outbound-call', methods=['POST'])
+@app.route('/outbound-call-twiml', methods=['GET', 'POST'])
 def outbound_call():
     number = request.form.get('number')
     
