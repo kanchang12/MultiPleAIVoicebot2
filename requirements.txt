@@ -1,0 +1,7 @@
+Flask
+requests
+websocket-client
+python-dotenv
+twilio
+gevent
+gevent-websocket
