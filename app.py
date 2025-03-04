@@ -85,17 +85,19 @@ def outbound_media_stream():
     if request.environ.get('wsgi.websocket'):
         ws = request.environ['wsgi.websocket']
         print("[Server] Twilio connected to outbound media stream")
-        
+
         stream_sid, call_sid, elevenlabs_ws, to_number = None, None, None, None
 
         def setup_elevenlabs():
             nonlocal elevenlabs_ws
             try:
+                print("[Server] Setting up ElevenLabs WebSocket")
                 signed_url = get_signed_url()
                 elevenlabs_ws = websocket.WebSocketApp(
                     signed_url,
                     on_message=on_elevenlabs_message,
-                    on_close=lambda ws, code, msg: print("[ElevenLabs] Disconnected")
+                    on_close=lambda ws, code, msg: print(f"[ElevenLabs] Disconnected with code {code}: {msg}"),
+                    on_error=lambda ws, error: print(f"[ElevenLabs] Error: {error}")
                 )
                 import threading
                 threading.Thread(target=elevenlabs_ws.run_forever, daemon=True).start()
@@ -104,28 +106,39 @@ def outbound_media_stream():
 
         def on_elevenlabs_message(wsapp, message):
             nonlocal stream_sid, to_number
-            msg = json.loads(message)
-            if msg.get("type") == "audio" and stream_sid:
-                ws.send(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": msg["audio"]["chunk"]}}))
-            elif msg.get("type") == "agent_response" and to_number:
-                agent_response = msg.get("agent_response_event", {}).get("agent_response", "")
-                if any(word in agent_response.lower() for word in ["appointment", "schedule", "book"]):
-                    send_appointment_sms(to_number, "Your appointment has been confirmed.")
+            try:
+                msg = json.loads(message)
+                print(f"[ElevenLabs] Message received: {msg}")
+                if msg.get("type") == "audio" and stream_sid:
+                    print(f"[Server] Sending audio chunk to Twilio, streamSid: {stream_sid}")
+                    ws.send(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": msg["audio"]["chunk"]}}))
+                elif msg.get("type") == "agent_response" and to_number:
+                    agent_response = msg.get("agent_response_event", {}).get("agent_response", "")
+                    print(f"[Server] Agent Response: {agent_response}")
+                    if any(word in agent_response.lower() for word in ["appointment", "schedule", "book"]):
+                        send_appointment_sms(to_number, "Your appointment has been confirmed.")
+            except Exception as e:
+                print(f"[ElevenLabs] Error processing message: {e}")
 
         try:
             while True:
                 message = ws.receive()
                 if message is None:
+                    print("[Server] WebSocket closed by Twilio")
                     break
                 msg = json.loads(message)
+                print(f"[Server] Twilio WebSocket message: {msg}")
                 if msg.get("event") == "start":
                     stream_sid, call_sid = msg["start"].get("streamSid"), msg["start"].get("callSid")
                     call_info = twilio_client.calls(call_sid).fetch() if call_sid else None
                     to_number = call_info.to if call_info else None
+                    print(f"[Server] Call started: streamSid={stream_sid}, callSid={call_sid}, to={to_number}")
                     setup_elevenlabs()
                 elif msg.get("event") == "media" and elevenlabs_ws:
+                    print(f"[Server] Sending media to ElevenLabs: {msg['media']}")
                     elevenlabs_ws.send(json.dumps({"user_audio_chunk": msg["media"]["payload"]}))
                 elif msg.get("event") == "stop":
+                    print("[Server] Stopping WebSocket connection")
                     if elevenlabs_ws:
                         elevenlabs_ws.close()
                     break
