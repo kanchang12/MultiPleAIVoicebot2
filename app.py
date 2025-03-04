@@ -67,7 +67,7 @@ def outbound_call():
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
-    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")
+    stream = Stream(url="wss://handsome-marquita-onewebonly-bffca566.koyeb.app/outbound-media-stream")
     connect.append(stream)
     response.append(connect)
     return str(response), 200, {'Content-Type': 'text/xml'}
