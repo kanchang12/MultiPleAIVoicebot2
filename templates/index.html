@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Initiation</title>
+</head>
+<body>
+    <h2>Initiate Outbound Call</h2>
+    <form id="callForm">
+        <label for="phoneNumber">Enter Phone Number:</label>
+        <input type="text" id="phoneNumber" name="phoneNumber" required>
+        <button type="submit">Call</button>
+    </form>
+
+    <script>
+        document.getElementById("callForm").addEventListener("submit", async function(event) {
+            event.preventDefault();
+            const number = document.getElementById("phoneNumber").value;
+
+            const response = await fetch("/outbound-call", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ number })
+            });
+
+            const result = await response.json();
+            alert(result.message || "Something went wrong");
+        });
+    </script>
+</body>
+</html>
