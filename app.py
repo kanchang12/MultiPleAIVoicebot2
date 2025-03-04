@@ -54,9 +54,9 @@ def index():
     return render_template('index.html')
 
 # Route to initiate outbound calls
-@app.route('/outbound-call-twiml', methods=['GET', 'POST'])
-def outbound_call():
-    number = request.form.get('number')
+@app.route('/outbound-call', methods=['POST'])
+def initiate_outbound_call():
+    number = request.json.get('number')
     
     if not number:
         return jsonify({"error": "Phone number is required"}), 400
@@ -66,7 +66,7 @@ def outbound_call():
         call = twilio_client.calls.create(
             from_=TWILIO_PHONE_NUMBER,
             to=number,
-            url=f"https://{request.host}/outbound-call-twiml"
+            url=f"https://{request.host}/outbound-call-twiml"  # Ensure the URL is correctly formatted
         )
         return jsonify({
             "success": True,
@@ -77,17 +77,19 @@ def outbound_call():
         print(f"Error initiating outbound call: {error}")
         return jsonify({"success": False, "error": "Failed to initiate call"}), 500
 
-# TwiML route for outbound calls
+
+# TwiML route for outbound calls (ensure this handles the call response)
 @app.route('/outbound-call-twiml', methods=['GET'])
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
-    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")
+    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")  # Corrected WebSocket URL
     stream.parameter(name="prompt", value=PROMPT)  # Pass the predefined prompt
     connect.append(stream)
     response.append(connect)
     
     return str(response)
+
 
 # WebSocket route for media streams
 @app.route('/outbound-media-stream')
