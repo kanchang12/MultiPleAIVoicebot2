@@ -43,7 +43,6 @@ def index():
     # This will render the index.html file
     return render_template('index.html')
 
-# Route to initiate the outbound call
 @app.route('/outbound-call', methods=['POST'])
 def outbound_call():
     data = request.json
@@ -55,12 +54,13 @@ def outbound_call():
         call = twilio_client.calls.create(
             from_=TWILIO_PHONE_NUMBER,
             to=number,
-            url=f"{BASE_URL}/outbound-call-twiml",
-            status_callback=f"{BASE_URL}/statusCallback"
+            url=f"{BASE_URL}/outbound-call-twiml"
         )
         return jsonify({"success": True, "message": "Call initiated", "callSid": call.sid})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        print(f"Error initiating outbound call: {e}")
+        return jsonify({"success": False, "error": "Failed to initiate call"}), 500
+
 
 # TwiML that Twilio will use to connect the call
 @app.route('/outbound-call-twiml', methods=['GET'])
