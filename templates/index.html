@@ -19,9 +19,11 @@
             const number = document.getElementById("phoneNumber").value;
 
             const response = await fetch("/outbound-call", {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ number })
+                method: "POST",  // Change method to POST
+                headers: { 
+                    "Content-Type": "application/json" 
+                },
+                body: JSON.stringify({ number })  // The body is allowed in POST requests
             });
 
             const result = await response.json();
