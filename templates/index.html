@@ -18,12 +18,12 @@
             event.preventDefault();
             const number = document.getElementById("phoneNumber").value;
 
-            const response = await fetch("/outbound-call", {
-                method: "POST",  // Change method to POST
-                headers: { 
-                    "Content-Type": "application/json" 
-                },
-                body: JSON.stringify({ number })  // The body is allowed in POST requests
+            // Send GET request to /outbound-call with query parameter for the phone number
+            const response = await fetch(`/outbound-call?number=${encodeURIComponent(number)}`, {
+                method: "GET",  // We will use GET method here
+                headers: {
+                    "Content-Type": "application/json"
+                }
             });
 
             const result = await response.json();
