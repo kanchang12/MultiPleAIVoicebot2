@@ -50,10 +50,9 @@ def send_appointment_sms(to_number):
 def index():
     return render_template('index.html')
 
-# Route to initiate outbound calls
-@app.route('/outbound-call', methods=['POST'])
+@app.route('/outbound-call', methods=['GET'])  # Use GET for the route
 def initiate_outbound_call():
-    number = request.json.get('number')
+    number = request.args.get('number')  # Get the number from query parameters
     
     if not number:
         return jsonify({"error": "Phone number is required"}), 400
@@ -75,12 +74,12 @@ def initiate_outbound_call():
         return jsonify({"success": False, "error": "Failed to initiate call"}), 500
 
 
-# TwiML route for outbound calls (ensure this handles the call response)
+# TwiML route for outbound calls (now supports GET)
 @app.route('/outbound-call-twiml', methods=['GET'])
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
-    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")  # Corrected WebSocket URL
+    stream = Stream(url=f"wss://{request.host}/outbound-media-stream")  # Correct WebSocket URL
     stream.parameter(name="prompt", value=PROMPT)  # Pass the predefined prompt
     connect.append(stream)
     response.append(connect)
