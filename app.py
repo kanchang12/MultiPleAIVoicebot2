@@ -7,18 +7,15 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 import websocket
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Initialize Flask app
+app = Flask(__name__)
 
-# Load environment variables
+# Environment variables (These will be automatically available on Koyeb)
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID')
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
-
-# Initialize Flask app
-app = Flask(__name__)
 
 # Initialize Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
@@ -54,7 +51,7 @@ def index():
     return render_template('index.html')
 
 # Route to initiate outbound calls
-@app.route('/outbound-call', methods=['GET'])
+@app.route('/outbound-call', methods=['POST'])
 def initiate_outbound_call():
     number = request.json.get('number')
     
@@ -161,4 +158,5 @@ def outbound_media_stream():
     return "WebSocket connection required", 400
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Run Flask app on Koyeb's dynamically assigned port (8000)
+    app.run(debug=True, host='0.0.0.0', port=8000)
