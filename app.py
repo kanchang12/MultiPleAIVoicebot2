@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
 from dotenv import load_dotenv
@@ -28,6 +28,12 @@ BASE_URL = 'https://handsome-marquita-onewebonly-bffca566.koyeb.app/'
 # Initialize Flask app and Twilio client
 app = Flask(__name__)
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+
+@app.route('/')
+def index():
+    # This will render the index.html file
+    return render_template('index.html')
 
 # Endpoint for initiating outbound calls
 @app.route('/outbound-call', methods=['POST'])
