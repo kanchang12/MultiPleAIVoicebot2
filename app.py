@@ -63,7 +63,7 @@ def outbound_call():
 
 
 # TwiML that Twilio will use to connect the call
-@app.route('/outbound-call-twiml', methods=['GET'], ['POST'])
+@app.route('/outbound-call-twiml', methods=['GET', 'POST'])
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
