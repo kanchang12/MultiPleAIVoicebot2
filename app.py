@@ -18,7 +18,7 @@ TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 
-BASE_URL = 'https://handsome-marquita-onewebonly-bffca566.koyeb.app/'
+BASE_URL = 'https://handsome-marquita-onewebonly-bffca566.koyeb.app'
 if not all([ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, BASE_URL]):
     raise ValueError('Missing required environment variables')
 
@@ -63,7 +63,7 @@ def outbound_call():
 
 
 # TwiML that Twilio will use to connect the call
-@app.route('/outbound-call-twiml', methods=['GET'])
+@app.route('/outbound-call-twiml', methods=['GET'], ['POST'])
 def outbound_call_twiml():
     response = VoiceResponse()
     connect = Connect()
